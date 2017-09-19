@@ -1,5 +1,8 @@
 APACHECTL=apachectl
-SRC = $(shell find . -name '*.cpp') $(shell find . -name '*.c') $(shell find . -name '*.cc') handler.grpc.pb.cc handler.pb.cc
+PROTOSRC = $(shell find . -name '*.proto')
+PROTOHEADERS = $(PROTOSRC:.proto=.grpc.pb.h) $(PROTOSRC:.proto=.pb.h)
+PROTOGEN = $(PROTOHEADERS:.h=.cc)
+SRC = $(shell find . -name '*.cpp') $(shell find . -name '*.c') $(shell find . -name '*.cc') $(PROTOSRC:.proto=.grpc.pb.cc) $(PROTOSRC:.proto=.pb.cc)
 EXCLUDE_SRC = 
 FSRC = $(filter-out $(EXCLUDE_SRC), $(SRC))
 OBJ = $(FSRC:=.o)
@@ -14,6 +17,7 @@ LINKFLAGS = -lprotobuf -lgrpc++
 OUTFILE = mod_grpcbackend.so
 
 .PHONY: clean debug release test reload install start restart stop
+.PRECIOUS: $(PROTOGEN) $(PROTOHEADERS)
 
 release: FLAGS += -O2
 release: $(OUTFILE)
@@ -26,19 +30,19 @@ $(OUTFILE): $(OBJ)
 	@$(CXX) -shared -o $@ $^ $(LINKFLAGS)
 	@echo Build done
 
-%.cpp.o: %.cpp
+%.cpp.o: %.cpp $(PROTOHEADERS)
 	@echo Building $<
 	@$(CXX) -c $(FLAGS) $(CXXFLAGS) $< -o $@
 	@mkdir -p `dirname $(DEP_DIR)/$@.d`
 	@$(CXX) -c $(FLAGS) $(CXXFLAGS) -MT '$@' -MM $< > $(DEP_DIR)/$@.d
 
-%.cc.o: %.cc
+%.cc.o: %.cc $(PROTOHEADERS)
 	@echo Building $<
 	@$(CXX) -c $(FLAGS) $(CXXFLAGS) $< -o $@
 	@mkdir -p `dirname $(DEP_DIR)/$@.d`
 	@$(CXX) -c $(FLAGS) $(CXXFLAGS) -MT '$@' -MM $< > $(DEP_DIR)/$@.d
 
-%.c.o: %.c
+%.c.o: %.c $(PROTOHEADERS)
 	@echo Building $<
 	@$(CC) -c $(FLAGS) $(CFLAGS) $< -o $@
 	@mkdir -p `dirname $(DEP_DIR)/$@.d`
@@ -51,6 +55,8 @@ clean:
 	@rm -f $(OBJ)
 	@echo Removing dependency files
 	@rm -rf $(DEP_DIR)
+	@echo Removing Protobuf generated files
+	@rm -rf $(PROTOHEADERS) $(PROTOGEN)
 
 %.grpc.pb.cc %.grpc.pb.h: %.proto
 	protoc -I . --grpc_out=. --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` $<
