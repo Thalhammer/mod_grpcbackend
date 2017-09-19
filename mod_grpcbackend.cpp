@@ -40,14 +40,6 @@ static int grpcbackend_handler(request_rec *r)
     if (!config->enabled || strcmp(r->handler, "grpcbackend")) {
         return DECLINED;
     }
-    if(!strcmp(r->uri, "/config")) {
-        ap_set_content_type(r, "text/plain");
-        ap_rprintf(r, "GRPC enabled: %s\n", (config->enabled)?"true":"false");
-        ap_rprintf(r, "GRPC call timeout: %s\n", std::to_string(config->call_timeout_ms).c_str());
-        ap_rprintf(r, "GRPC connect timeout: %s\n", std::to_string(config->connect_timeout_ms).c_str());
-        ap_rprintf(r, "GRPC host:    %s\n", config->host);
-        return DONE;
-    }
     return handle_request(r, config);
 }
 
