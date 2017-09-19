@@ -16,7 +16,11 @@ LINKFLAGS = -lprotobuf -lgrpc++
 
 OUTFILE = mod_grpcbackend.so
 
-.PHONY: clean debug release test reload install start restart stop
+ARCH := $(shell getconf LONG_BIT)
+DEBVERSION = "0.0."`git rev-list HEAD --count`
+DEBFOLDER = libapach2-mod-grpcbackend-$(DEBVERSION)
+
+.PHONY: clean debug release test reload install start restart stop package
 .PRECIOUS: $(PROTOGEN) $(PROTOHEADERS)
 
 release: FLAGS += -O2
@@ -57,6 +61,10 @@ clean:
 	@rm -rf $(DEP_DIR)
 	@echo Removing Protobuf generated files
 	@rm -rf $(PROTOHEADERS) $(PROTOGEN)
+	@echo Removing debian packages
+	@rm -rf $(DEBFOLDER)
+	@rm -f $(DEBFOLDER).deb
+
 
 %.grpc.pb.cc %.grpc.pb.h: %.proto
 	protoc -I . --grpc_out=. --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` $<
@@ -88,3 +96,25 @@ stop:
 
 run-apache:
 	$(APACHECTL) -d . -f httpd.conf -e info -DFOREGROUND
+
+package: release
+	@rm -r -f $(DEBFOLDER)
+	@echo Creating package
+	mkdir -p $(DEBFOLDER)/DEBIAN
+	@mkdir -p $(DEBFOLDER)/etc/apache2/mods-available/
+	@mkdir -p $(DEBFOLDER)/usr/lib/apache2/modules/
+	@echo "Package: libapache2-mod-grpcbackend" >> $(DEBFOLDER)/DEBIAN/control
+	@echo "Version: $(DEBVERSION)" >> $(DEBFOLDER)/DEBIAN/control
+	@echo "Section: httpd" >> $(DEBFOLDER)/DEBIAN/control
+	@echo "Priority: optional" >> $(DEBFOLDER)/DEBIAN/control
+ifeq ($(ARCH),64)
+	@echo "Architecture: amd64" >> $(DEBFOLDER)/DEBIAN/control
+else
+	@echo "Architecture: i386" >> $(DEBFOLDER)/DEBIAN/control
+endif
+	@echo "Depends: " >> $(DEBFOLDER)/DEBIAN/control
+	@echo "Maintainer: Dominik Thalhammer <dominik@thalhammer.it>" >> $(DEBFOLDER)/DEBIAN/control
+	@echo "Description: Apache module to forward requests to a grpc backend" >> $(DEBFOLDER)/DEBIAN/control
+	@cp $(OUTFILE) $(DEBFOLDER)/usr/lib/apache2/modules/mod_grpcbackend.so
+	@cp mod_grpcbackend.load $(DEBFOLDER)/etc/apache2/mods-available/grpcbackend.load
+	@fakeroot dpkg-deb --build $(DEBFOLDER)
