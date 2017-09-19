@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package thalhammer.http;
+
+message Header {
+	string key = 1;
+	string value = 2;
+}
+
+message Request {
+	string method = 1;
+	string resource = 2;
+	string protocol = 3;
+	repeated Header headers = 4;
+	bytes content = 5;
+}
+
+message Response {
+	int32 status_code = 1;
+	string status_message = 2;
+	repeated Header headers = 3;
+	bytes content = 5;
+}
+
+message ClientInfo {
+	string remote_ip = 1;
+	int32 remote_port = 2;
+	string local_ip = 3;
+	int32 local_port = 4;
+	bool encrypted = 5;
+}
+
+message HandleRequest {
+	Request request = 1;
+	ClientInfo client = 2;
+}
+
+message HandleResponse {
+	Response response = 1;
+}
+
+service Handler {
+	rpc Handle(stream HandleRequest) returns(stream HandleResponse) {}
+}
