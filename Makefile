@@ -18,7 +18,7 @@ OUTFILE = mod_grpcbackend.so
 
 ARCH := $(shell getconf LONG_BIT)
 DEBVERSION = "0.0."`git rev-list HEAD --count`
-DEBFOLDER = libapach2-mod-grpcbackend-$(DEBVERSION)
+DEBFOLDER = libapache2-mod-grpcbackend-$(DEBVERSION)
 
 .PHONY: clean debug release test reload install start restart stop package
 .PRECIOUS: $(PROTOGEN) $(PROTOHEADERS)
