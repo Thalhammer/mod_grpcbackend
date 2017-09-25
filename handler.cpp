@@ -232,7 +232,7 @@ int handle_request(request_rec* r, const grpcbackend_config_t* config) {
 			std::string key = header.key();
 			std::transform(key.begin(), key.end(), key.begin(), ::tolower);
 			if(key == "content-type")
-				ap_set_content_type(r, apr_pstrdup(r->pool, key.c_str()));
+				ap_set_content_type(r, apr_pstrdup(r->pool, header.value().c_str()));
 		}
 		if(!response.content().empty())
 		{
