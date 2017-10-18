@@ -9,7 +9,7 @@ OBJ = $(FSRC:=.o)
 
 DEP_DIR = .deps
 
-FLAGS = -fPIC -DPIC -Wall -Wno-unknown-pragmas -fstack-protector-strong -flto `pkg-config --cflags apr-1` -I`apxs -q INCLUDEDIR`
+FLAGS = -fPIC -DPIC -Wall -Wno-unknown-pragmas -fstack-protector-strong -flto `pkg-config --cflags apr-1` -I`apxs -q INCLUDEDIR` -I ../apache-websocket/
 CXXFLAGS = -std=c++14
 CFLAGS = 
 LINKFLAGS = -lprotobuf -lgrpc++

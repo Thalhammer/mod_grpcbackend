@@ -71,9 +71,6 @@ size_t read_body(Func func, request_rec* r) {
 	return total_size;
 }
 
-#define PTABLE(s, table) print_table(s, #table, table)
-#define PSTR(str) ap_log_error(APLOG_MARK, APLOG_INFO, 0, r->server, "%s = %s", #str, str);
-
 void print_table(server_rec* s, const char* name, apr_table_t* table) {
 	auto *fields = apr_table_elts(table);
 	auto *e = (apr_table_entry_t *)fields->elts;
@@ -94,10 +91,8 @@ class grpc_connection_provider {
 	std::map<std::string, con_entry> channels;
 public:
 	grpc_connection_provider() {
-		printf("ConProvider create\n");
 	}
 	~grpc_connection_provider() {
-		printf("ConProvider destroy\n");
 	}
 
 	std::unique_ptr<::thalhammer::http::Handler::Stub> getStub(const char* host, int64_t timeout) {
@@ -137,7 +132,12 @@ public:
 
 static grpc_connection_provider con_provider;
 
-int handle_request(request_rec* r, const grpcbackend_config_t* config) {
+http_handler::http_handler(request_rec* r) {
+	this->r = r;
+	this->config = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
+}
+
+int http_handler::handle_request() {
 	if(config->host == nullptr)
 		return HTTP_INTERNAL_SERVER_ERROR;
 	auto stub = con_provider.getStub(config->host, config->connect_timeout_ms);	
@@ -182,26 +182,6 @@ int handle_request(request_rec* r, const grpcbackend_config_t* config) {
 			return HTTP_SERVICE_UNAVAILABLE;
 		}
 	}
-
-	/*
-	// Debug helpers
-	PSTR(r->uri);
-	PSTR(r->unparsed_uri);
-	PSTR(r->parsed_uri.scheme);
-	PSTR(r->parsed_uri.hostinfo);
-	PSTR(r->parsed_uri.user);
-	PSTR(r->parsed_uri.password);
-	PSTR(r->parsed_uri.hostname);
-	PSTR(r->parsed_uri.port_str);
-	PSTR(r->parsed_uri.path);
-	PSTR(r->parsed_uri.query);
-	PSTR(r->parsed_uri.fragment);
-	PSTR(r->filename);
-	PSTR(r->canonical_filename);
-	PSTR(r->path_info);
-	PSTR(r->args);
-	PSTR(r->hostname);
-	*/
 
 	bool failed = false;
 	read_body([&stream, &failed](const char* data, size_t len){
@@ -254,3 +234,134 @@ int handle_request(request_rec* r, const grpcbackend_config_t* config) {
 
 	return DONE;
 }
+
+void websocket_handler::send(int type, const uint8_t* buffer, size_t buffer_size)
+{
+	_server->send(_server, type, buffer, buffer_size);
+}
+
+websocket_handler::websocket_handler(const WebSocketServer* server)
+	: _server(server)
+{
+	auto* r = server->request(server);
+	auto* config = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
+	if(!config->host)
+		throw std::runtime_error("Missing grpc host");
+	_stub = con_provider.getStub(config->host, config->connect_timeout_ms);
+
+	if(!_stub) {
+		throw std::runtime_error("GRPC Backend timeout");
+	}
+
+	_stream = _stub->HandleWebSocket(&_call_context);
+
+	{
+		::thalhammer::http::HandleWebSocketRequest req;
+		auto* client = req.mutable_request()->mutable_client();
+		auto* con = r->connection;
+		client->set_local_port(con->local_addr->port);
+		client->set_local_ip(apr_addr_to_string(con->local_addr));
+		client->set_remote_port(con->client_addr->port);
+		client->set_remote_ip(apr_addr_to_string(con->client_addr));
+		client->set_encrypted(!strcmp(ap_http_scheme(r), "https"));
+		auto* request = req.mutable_request();
+		request->set_method(r->method);
+		request->set_protocol(r->protocol);
+		request->set_resource(r->unparsed_uri);
+		
+		auto *fields = apr_table_elts(r->headers_in);
+		auto *e = (apr_table_entry_t *)fields->elts;
+		for(int i = 0; i < fields->nelts; i++) {
+			auto* header = request->add_headers();
+			header->set_key(e[i].key);
+			header->set_value(e[i].val);
+		}
+
+		if(!_stream->Write(req)) {
+			con_provider.reset_cache(config->host);
+			throw std::runtime_error("Failed to write initial grpc request");
+		}
+	}
+
+	{
+		::thalhammer::http::HandleWebSocketResponse resp;
+		if(!_stream->Read(&resp)) {
+			con_provider.reset_cache(config->host);
+			throw std::runtime_error("Failed to read initial grpc response");
+		} else {
+			for(auto& header : resp.response().headers()) {
+				apr_table_setn(r->headers_out, apr_pstrdup(r->pool, header.key().c_str()), apr_pstrdup(r->pool, header.value().c_str()));
+				std::string key = header.key();
+				std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+			}
+		}
+	}
+
+	_recv_thread = std::thread([this,r](){
+		try {
+			::thalhammer::http::HandleWebSocketResponse resp;
+			while(!_recv_shutdown && _stream->Read(&resp)) {
+				auto& msg = resp.message();
+				int mtype = MESSAGE_TYPE_INVALID;
+				switch(msg.type()) {
+					case ::thalhammer::http::WebSocketMessage::TEXT:
+						mtype = MESSAGE_TYPE_TEXT; break;
+					case ::thalhammer::http::WebSocketMessage::BINARY:
+						mtype = MESSAGE_TYPE_BINARY; break;
+					case ::thalhammer::http::WebSocketMessage::CLOSE:
+						_server->close(_server);
+						_recv_shutdown = true;
+						break;
+					default:
+						break;
+				}
+				if(mtype != MESSAGE_TYPE_INVALID) {
+					auto& content = msg.content();
+					this->send(mtype, (const uint8_t*)content.data(), content.size());
+				}
+			}
+		} catch(...) {
+			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Exception in read thread");
+		}
+	});
+}
+
+websocket_handler::~websocket_handler()
+{
+}
+
+void websocket_handler::on_message(int type, const uint8_t* buffer, size_t buffer_size)
+{
+	::thalhammer::http::HandleWebSocketRequest req;
+	auto* msg = req.mutable_message();
+	switch(type) {
+		case MESSAGE_TYPE_TEXT:
+			msg->set_type(::thalhammer::http::WebSocketMessage::TEXT); break;
+		case MESSAGE_TYPE_BINARY:
+			msg->set_type(::thalhammer::http::WebSocketMessage::BINARY); break;
+	}
+	msg->set_content((const char*)buffer, buffer_size);
+
+	if(!_stream->Write(req))
+	{
+		ap_log_error(APLOG_MARK, APLOG_ERR, 0, _server->request(_server)->server, "Failed to send websocket message to backend");
+	}
+}
+
+void websocket_handler::on_disconnect()
+{
+	::thalhammer::http::HandleWebSocketRequest req;
+	auto* msg = req.mutable_message();
+	msg->set_type(::thalhammer::http::WebSocketMessage::CLOSE);
+	msg->set_content("");
+	_stream->WriteLast(req, ::grpc::WriteOptions());
+
+	_recv_shutdown = true;
+	::grpc::Status s = _stream->Finish();
+	if(!s.ok()) {
+		ap_log_error(APLOG_MARK, APLOG_ERR, 0, _server->request(_server)->server, "Failed to execute rpc: %s", s.error_message().c_str());
+	}
+	if(_recv_thread.joinable())
+		_recv_thread.join();
+}
+

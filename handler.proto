@@ -39,6 +39,39 @@ message HandleResponse {
 	Response response = 1;
 }
 
+message WebSocketMessage {
+	enum Type {
+		TEXT = 0;
+		BINARY = 1;
+		CLOSE = 2;
+	}
+	Type type = 1;
+	bytes content = 2;
+}
+
+message WebSocketRequest {
+	string method = 1;
+	string resource = 2;
+	string protocol = 3;
+	repeated Header headers = 4;
+	ClientInfo client = 5;
+}
+
+message WebSocketResponse {
+	repeated Header headers = 3;
+}
+
+message HandleWebSocketRequest {
+	WebSocketRequest request = 1;
+	WebSocketMessage message = 2;
+}
+
+message HandleWebSocketResponse {
+	WebSocketResponse response = 1;
+	WebSocketMessage message = 2;
+}
+
 service Handler {
 	rpc Handle(stream HandleRequest) returns(stream HandleResponse) {}
+	rpc HandleWebSocket(stream HandleWebSocketRequest) returns(stream HandleWebSocketResponse) {}
 }
