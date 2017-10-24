@@ -14,11 +14,12 @@ CXXFLAGS = -std=c++14
 CFLAGS = 
 LINKFLAGS = -lprotobuf -lgrpc++
 
+OUTNAME = libapache2-mod-grpcbackend
 OUTFILE = mod_grpcbackend.so
 
 ARCH := $(shell getconf LONG_BIT)
-DEBVERSION = "0.0."`git rev-list HEAD --count`
-DEBFOLDER = libapache2-mod-grpcbackend-$(DEBVERSION)
+DEBVERSION = $(shell git describe --tags --long | cut -d- -f1,2 | cut -c2-)
+DEBFOLDER = $(OUTNAME)_$(DEBVERSION)
 
 .PHONY: clean debug release test reload install start restart stop package
 .PRECIOUS: $(PROTOGEN) $(PROTOHEADERS)
@@ -100,10 +101,10 @@ run-apache:
 package: release
 	@rm -r -f $(DEBFOLDER)
 	@echo Creating package
-	mkdir -p $(DEBFOLDER)/DEBIAN
+	@mkdir -p $(DEBFOLDER)/DEBIAN
 	@mkdir -p $(DEBFOLDER)/etc/apache2/mods-available/
 	@mkdir -p $(DEBFOLDER)/usr/lib/apache2/modules/
-	@echo "Package: libapache2-mod-grpcbackend" >> $(DEBFOLDER)/DEBIAN/control
+	@echo "Package: $(OUTNAME)" >> $(DEBFOLDER)/DEBIAN/control
 	@echo "Version: $(DEBVERSION)" >> $(DEBFOLDER)/DEBIAN/control
 	@echo "Section: httpd" >> $(DEBFOLDER)/DEBIAN/control
 	@echo "Priority: optional" >> $(DEBFOLDER)/DEBIAN/control
@@ -115,6 +116,6 @@ endif
 	@echo "Depends: " >> $(DEBFOLDER)/DEBIAN/control
 	@echo "Maintainer: Dominik Thalhammer <dominik@thalhammer.it>" >> $(DEBFOLDER)/DEBIAN/control
 	@echo "Description: Apache module to forward requests to a grpc backend" >> $(DEBFOLDER)/DEBIAN/control
-	@cp $(OUTFILE) $(DEBFOLDER)/usr/lib/apache2/modules/mod_grpcbackend.so
+	@cp $(OUTFILE) $(DEBFOLDER)/usr/lib/apache2/modules/$(OUTFILE)
 	@cp mod_grpcbackend.load $(DEBFOLDER)/etc/apache2/mods-available/grpcbackend.load
 	@fakeroot dpkg-deb --build $(DEBFOLDER)
