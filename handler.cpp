@@ -59,7 +59,7 @@ size_t read_body(Func func, request_rec* r) {
 				seen_eos = true;
 				break;
 			}
-			
+
 			if(!func(data, len))
 				break;
 			total_size += len;
@@ -67,7 +67,7 @@ size_t read_body(Func func, request_rec* r) {
 
         apr_brigade_cleanup(bb);
 	} while (!seen_eos);
-	
+
 	return total_size;
 }
 
@@ -241,7 +241,7 @@ void websocket_handler::send(int type, const uint8_t* buffer, size_t buffer_size
 }
 
 websocket_handler::websocket_handler(const WebSocketServer* server)
-	: _server(server)
+	: _recv_shutdown(false), _server(server)
 {
 	auto* r = server->request(server);
 	auto* config = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
