@@ -1,8 +1,8 @@
 APACHECTL=apachectl
-PROTOSRC = $(shell find . -name '*.proto')
+PROTOSRC = $(shell find . -name '*.proto' -not -path "./examples*")
 PROTOHEADERS = $(PROTOSRC:.proto=.grpc.pb.h) $(PROTOSRC:.proto=.pb.h)
 PROTOGEN = $(PROTOHEADERS:.h=.cc)
-SRC = $(shell find . -name '*.cpp') $(shell find . -name '*.c') $(shell find . -name '*.cc') $(PROTOSRC:.proto=.grpc.pb.cc) $(PROTOSRC:.proto=.pb.cc)
+SRC = $(shell find . -name '*.cpp' -not -path "./examples*") $(shell find . -name '*.c'  -not -path "./examples*") $(shell find . -name '*.cc'  -not -path "./examples*") $(PROTOSRC:.proto=.grpc.pb.cc) $(PROTOSRC:.proto=.pb.cc)
 EXCLUDE_SRC = 
 FSRC = $(filter-out $(EXCLUDE_SRC), $(SRC))
 OBJ = $(FSRC:=.o)

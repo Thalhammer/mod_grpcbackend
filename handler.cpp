@@ -179,6 +179,10 @@ int http_handler::handle_request() {
 			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to write initial grpc request");
 			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Maybe backend not online ?");
 			con_provider.reset_cache(config->host);
+			::grpc::Status s = stream->Finish();
+			if(!s.ok()) {
+				ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to execute rpc: %s", s.error_message().c_str());
+			}
 			return HTTP_SERVICE_UNAVAILABLE;
 		}
 	}
@@ -195,6 +199,10 @@ int http_handler::handle_request() {
 	if(failed || !stream->WritesDone()) {
 		ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to write grpc request");
 		con_provider.reset_cache(config->host);
+		::grpc::Status s = stream->Finish();
+		if(!s.ok()) {
+			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to execute rpc: %s", s.error_message().c_str());
+		}
 		return HTTP_BAD_GATEWAY;
 	}
 
@@ -202,6 +210,10 @@ int http_handler::handle_request() {
 	if(!stream->Read(&resp)) {
 		ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to read initial grpc response");
 		con_provider.reset_cache(config->host);
+		::grpc::Status s = stream->Finish();
+		if(!s.ok()) {
+			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to execute rpc: %s", s.error_message().c_str());
+		}
 		return HTTP_BAD_GATEWAY;
 	} else {
 		auto& response = resp.response();
@@ -283,24 +295,23 @@ websocket_handler::websocket_handler(const WebSocketServer* server)
 		}
 	}
 
-	{
-		::thalhammer::http::HandleWebSocketResponse resp;
-		if(!_stream->Read(&resp)) {
-			con_provider.reset_cache(config->host);
-			throw std::runtime_error("Failed to read initial grpc response");
-		} else {
-			for(auto& header : resp.response().headers()) {
-				apr_table_setn(r->headers_out, apr_pstrdup(r->pool, header.key().c_str()), apr_pstrdup(r->pool, header.value().c_str()));
-				std::string key = header.key();
-				std::transform(key.begin(), key.end(), key.begin(), ::tolower);
-			}
+	::thalhammer::http::HandleWebSocketResponse resp;
+	if(!_stream->Read(&resp)) {
+		con_provider.reset_cache(config->host);
+		throw std::runtime_error("Failed to read initial grpc response");
+	} else {
+		for(auto& header : resp.response().headers()) {
+			apr_table_setn(r->headers_out, apr_pstrdup(r->pool, header.key().c_str()), apr_pstrdup(r->pool, header.value().c_str()));
+			std::string key = header.key();
+			std::transform(key.begin(), key.end(), key.begin(), ::tolower);
 		}
 	}
 
-	_recv_thread = std::thread([this,r](){
+	_recv_thread = std::thread([this,r, initial_response = resp](){
 		try {
-			::thalhammer::http::HandleWebSocketResponse resp;
-			while(!_recv_shutdown && _stream->Read(&resp)) {
+			::thalhammer::http::HandleWebSocketResponse resp = initial_response;
+			do {
+				if(!resp.has_message()) continue;
 				auto& msg = resp.message();
 				int mtype = MESSAGE_TYPE_INVALID;
 				switch(msg.type()) {
@@ -319,7 +330,7 @@ websocket_handler::websocket_handler(const WebSocketServer* server)
 					auto& content = msg.content();
 					this->send(mtype, (const uint8_t*)content.data(), content.size());
 				}
-			}
+			} while(!_recv_shutdown && _stream->Read(&resp));
 		} catch(...) {
 			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Exception in read thread");
 		}
