@@ -2,6 +2,12 @@
 #include <grpc++/channel.h>
 #include <grpc++/create_channel.h>
 
+extern "C" {
+	#include "httpd.h"
+	#include "http_log.h"
+	APLOG_USE_MODULE(grpcbackend);
+}
+
 struct grpc_connection_provider::con_entry
 {
 	std::shared_ptr<::grpc::Channel> channel;
@@ -16,7 +22,7 @@ grpc_connection_provider::~grpc_connection_provider()
 {
 }
 
-std::shared_ptr<::grpc::Channel> grpc_connection_provider::get_channel(const char *host, int64_t timeout)
+std::shared_ptr<::grpc::Channel> grpc_connection_provider::get_channel(const char *host, int64_t timeout, request_rec* r)
 {
 	std::unique_lock<std::mutex> lck(mtx);
 	std::shared_ptr<::grpc::Channel> channel;
@@ -34,7 +40,7 @@ std::shared_ptr<::grpc::Channel> grpc_connection_provider::get_channel(const cha
 
 	if (!channel)
 	{
-		printf("ConProvider create channel to %s\n", host);
+		ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "grpc_connection_provider create channel to %s", host);
 		channel = grpc::CreateChannel(host, grpc::InsecureChannelCredentials());
 		con_entry entry{channel, 0};
 		channels.insert({host, entry});
@@ -51,8 +57,9 @@ std::shared_ptr<::grpc::Channel> grpc_connection_provider::get_channel(const cha
 	return channel;
 }
 
-void grpc_connection_provider::reset_cache(const char *host)
+void grpc_connection_provider::reset_cache(const char *host, request_rec* r)
 {
+	ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "grpc_connection_provider reset %s", host);
 	std::unique_lock<std::mutex> lck(mtx);
 	channels.erase(host);
 }

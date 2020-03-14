@@ -5,7 +5,6 @@
 #include "http_request.h"
 #include "ap_config.h"
 #include "mod_websocket_hook_export.h"
-#include <string>
 
 static int grpcbackend_handler(request_rec *r);
 static int grpcbackend_fixups(request_rec *r);
@@ -46,10 +45,11 @@ static int grpcbackend_handler(request_rec *r)
     if(strcmp(r->handler, "grpcbackend")) {
         return DECLINED;
     }
-    auto* handler = http_handler::create(r->pool, r);
-    if (!handler->get_config()->enabled) {
+    auto cfg = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
+    if (!cfg->enabled) {
         return DECLINED;
     }
+    auto* handler = http_handler::create(r->pool, r, cfg);
     return handler->handle_request();
 }
 
@@ -63,26 +63,28 @@ static int grpcbackend_fixups(request_rec *r)
     return DECLINED;
 }
 
-size_t CALLBACK grpcbackend_ws_onmessage(void *plugin_private, const WebSocketServer *server, const int type, unsigned char *buffer, const size_t buffer_size)
+static size_t grpcbackend_ws_onmessage(void *plugin_private, const WebSocketServer *server, const int type, unsigned char *buffer, const size_t buffer_size)
 {
     auto* handler = reinterpret_cast<websocket_handler*>(plugin_private);
     handler->on_message(type, buffer, buffer_size);
     return 0;
 }
 
-void* CALLBACK grpcbackend_ws_onconnect(const WebSocketServer *server)
+static void* grpcbackend_ws_onconnect(const WebSocketServer *server)
 {
     auto* r = server->request(server);
     
     try {
-        return websocket_handler::create(r->pool, server);
+        auto hdl = websocket_handler::create(r->pool, server);
+        if(!hdl->init()) return nullptr;
+        return hdl;
     }catch(const std::exception& e) {
-        ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to create ws handler: %s", e.what());
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "failed to create ws handler: %s", e.what());
         return nullptr;
     }
 }
 
-void CALLBACK grpcbackend_ws_ondisconnect(void *plugin_private, const WebSocketServer *server)
+static void grpcbackend_ws_ondisconnect(void *plugin_private, const WebSocketServer *server)
 {
     auto* handler = reinterpret_cast<websocket_handler*>(plugin_private);
     handler->on_disconnect();

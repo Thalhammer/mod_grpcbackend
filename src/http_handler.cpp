@@ -67,42 +67,37 @@ size_t read_body(Func func, request_rec* r) {
 	return total_size;
 }
 
-http_handler::http_handler(request_rec* r) {
-	this->r = r;
-	this->config = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
-}
-
 int http_handler::handle_request() {
-	if(config->host == nullptr)
+	if(m_config->host == nullptr)
 		return HTTP_INTERNAL_SERVER_ERROR;
-	auto channel = grpc_connection_provider::get_instance().get_channel(config->host, config->connect_timeout_ms);
+	auto channel = grpc_connection_provider::get_instance().get_channel(m_config->host, m_config->connect_timeout_ms, m_r);
 	if(!channel) {
-		ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "GRPC Backend timeout");
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "grpc backend timeout");
 		return HTTP_GATEWAY_TIME_OUT;
 	}
 	auto stub = ::thalhammer::http::Handler::NewStub(channel);
 
 	::grpc::ClientContext context;
-	if(config->call_timeout_ms > 0)
-		context.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(config->call_timeout_ms));
+	if(m_config->call_timeout_ms > 0)
+		context.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(m_config->call_timeout_ms));
 
 	auto stream = stub->Handle(&context);
 
 	{
 		::thalhammer::http::HandleRequest req;
 		auto* client = req.mutable_client();
-		auto* con = r->connection;
+		auto* con = m_r->connection;
 		client->set_local_port(con->local_addr->port);
 		client->set_local_ip(utils::apr_addr_to_string(con->local_addr));
 		client->set_remote_port(con->client_addr->port);
 		client->set_remote_ip(utils::apr_addr_to_string(con->client_addr));
-		client->set_encrypted(!strcmp(ap_http_scheme(r), "https"));
+		client->set_encrypted(!strcmp(ap_http_scheme(m_r), "https"));
 		auto* request = req.mutable_request();
-		request->set_method(r->method);
-		request->set_protocol(r->protocol);
-		request->set_resource(r->unparsed_uri);
+		request->set_method(m_r->method);
+		request->set_protocol(m_r->protocol);
+		request->set_resource(m_r->unparsed_uri);
 		
-		auto *fields = apr_table_elts(r->headers_in);
+		auto *fields = apr_table_elts(m_r->headers_in);
 		auto *e = (apr_table_entry_t *)fields->elts;
 		for(int i = 0; i < fields->nelts; i++) {
 			auto* header = request->add_headers();
@@ -111,12 +106,12 @@ int http_handler::handle_request() {
 		}
 
 		if(!stream->Write(req)) {
-			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to write initial grpc request");
-			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Maybe backend not online ?");
-			grpc_connection_provider::get_instance().reset_cache(config->host);
+			ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "failed to write initial grpc request");
+			ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "maybe backend not online ?");
+			grpc_connection_provider::get_instance().reset_cache(m_config->host, m_r);
 			::grpc::Status s = stream->Finish();
 			if(!s.ok()) {
-				ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to execute rpc: %s", s.error_message().c_str());
+				ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "failed to execute rpc: %s", s.error_message().c_str());
 			}
 			return HTTP_SERVICE_UNAVAILABLE;
 		}
@@ -129,53 +124,53 @@ int http_handler::handle_request() {
 		if(!stream->Write(req))
 			failed = true;
 		return !failed;
-	}, r);
+	}, m_r);
 
 	if(failed || !stream->WritesDone()) {
-		ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to write grpc request");
-		grpc_connection_provider::get_instance().reset_cache(config->host);
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "failed to write grpc request");
+		grpc_connection_provider::get_instance().reset_cache(m_config->host, m_r);
 		::grpc::Status s = stream->Finish();
 		if(!s.ok()) {
-			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to execute rpc: %s", s.error_message().c_str());
+			ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "failed to execute rpc: %s", s.error_message().c_str());
 		}
 		return HTTP_BAD_GATEWAY;
 	}
 
 	::thalhammer::http::HandleResponse resp;
 	if(!stream->Read(&resp)) {
-		ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to read initial grpc response");
-		grpc_connection_provider::get_instance().reset_cache(config->host);
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "failed to read initial grpc response");
+		grpc_connection_provider::get_instance().reset_cache(m_config->host, m_r);
 		::grpc::Status s = stream->Finish();
 		if(!s.ok()) {
-			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to execute rpc: %s", s.error_message().c_str());
+			ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "failed to execute rpc: %s", s.error_message().c_str());
 		}
 		return HTTP_BAD_GATEWAY;
 	} else {
 		auto& response = resp.response();
-		r->status = response.status_code();
-		r->status_line = apr_pstrdup(r->pool, (std::to_string(r->status) + " " + response.status_message()).c_str());
+		m_r->status = response.status_code();
+		m_r->status_line = apr_pstrdup(m_r->pool, (std::to_string(m_r->status) + " " + response.status_message()).c_str());
 		for(auto& header : response.headers()) {
-			apr_table_setn(r->headers_out, apr_pstrdup(r->pool, header.key().c_str()), apr_pstrdup(r->pool, header.value().c_str()));
+			apr_table_setn(m_r->headers_out, apr_pstrdup(m_r->pool, header.key().c_str()), apr_pstrdup(m_r->pool, header.value().c_str()));
 			std::string key = header.key();
 			std::transform(key.begin(), key.end(), key.begin(), ::tolower);
 			if(key == "content-type")
-				ap_set_content_type(r, apr_pstrdup(r->pool, header.value().c_str()));
+				ap_set_content_type(m_r, apr_pstrdup(m_r->pool, header.value().c_str()));
 		}
 		if(!response.content().empty())
 		{
 			auto& content = response.content();
-			ap_rwrite(content.data(), content.size(), r);
+			ap_rwrite(content.data(), content.size(), m_r);
 		}
 	}
 
 	while(stream->Read(&resp)) {
 		auto& content = resp.response().content();
-		ap_rwrite(content.data(), content.size(), r);
+		ap_rwrite(content.data(), content.size(), m_r);
 	}
 
 	::grpc::Status s = stream->Finish();
 	if(!s.ok()) {
-		ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Failed to execute rpc: %s", s.error_message().c_str());
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_r, "failed to execute rpc: %s", s.error_message().c_str());
 		return HTTP_INTERNAL_SERVER_ERROR;
 	}
 

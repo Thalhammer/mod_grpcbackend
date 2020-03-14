@@ -3,6 +3,7 @@
 #include <mutex>
 #include <map> 
 
+struct request_rec;
 namespace grpc_impl {
     class Channel;
 }
@@ -15,8 +16,8 @@ class grpc_connection_provider {
 public:
 	grpc_connection_provider();
 	~grpc_connection_provider();
-	std::shared_ptr<::grpc::Channel> get_channel(const char* host, int64_t timeout);
-	void reset_cache(const char* host);
+	std::shared_ptr<::grpc::Channel> get_channel(const char* host, int64_t timeout, request_rec* r);
+	void reset_cache(const char* host, request_rec* r);
 
     static grpc_connection_provider& get_instance();
 };

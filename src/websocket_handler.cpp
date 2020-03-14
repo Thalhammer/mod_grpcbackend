@@ -15,24 +15,30 @@ extern "C" {
 
 void websocket_handler::send(int type, const uint8_t* buffer, size_t buffer_size)
 {
-	_server->send(_server, type, buffer, buffer_size);
+	m_server->send(m_server, type, buffer, buffer_size);
 }
 
 websocket_handler::websocket_handler(const WebSocketServer* server)
-	: _recv_shutdown(false), _server(server)
+	: m_recv_shutdown(false), m_server(server)
+{}
+
+bool websocket_handler::init()
 {
-	auto* r = server->request(server);
+	auto* r = m_server->request(m_server);
 	auto* config = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
-	if(!config->host)
-		throw std::runtime_error("Missing grpc host");
-	auto channel = grpc_connection_provider::get_instance().get_channel(config->host, config->connect_timeout_ms);
+	if(!config->host){
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "missing grpc host");
+		return false;
+	}
+	auto channel = grpc_connection_provider::get_instance().get_channel(config->host, config->connect_timeout_ms, r);
 
 	if(!channel) {
-		throw std::runtime_error("GRPC Backend timeout");
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "grpc backend timeout");
+		return false;
 	}
 
-	_stub = ::thalhammer::http::Handler::NewStub(channel);
-	_stream = _stub->HandleWebSocket(&_call_context);
+	m_stub = ::thalhammer::http::Handler::NewStub(channel);
+	m_stream = m_stub->HandleWebSocket(&m_call_context);
 
 	{
 		::thalhammer::http::HandleWebSocketRequest req;
@@ -56,16 +62,18 @@ websocket_handler::websocket_handler(const WebSocketServer* server)
 			header->set_value(e[i].val);
 		}
 
-		if(!_stream->Write(req)) {
-			grpc_connection_provider::get_instance().reset_cache(config->host);
-			throw std::runtime_error("Failed to write initial grpc request");
+		if(!m_stream->Write(req)) {
+			grpc_connection_provider::get_instance().reset_cache(config->host, r);
+			ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "failed to write initial grpc request");
+			return false;
 		}
 	}
 
 	::thalhammer::http::HandleWebSocketResponse resp;
-	if(!_stream->Read(&resp)) {
-		grpc_connection_provider::get_instance().reset_cache(config->host);
-		throw std::runtime_error("Failed to read initial grpc response");
+	if(!m_stream->Read(&resp)) {
+		grpc_connection_provider::get_instance().reset_cache(config->host, r);
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "failed to read initial grpc response");
+		return false;
 	} else {
 		for(auto& header : resp.response().headers()) {
 			apr_table_setn(r->headers_out, apr_pstrdup(r->pool, header.key().c_str()), apr_pstrdup(r->pool, header.value().c_str()));
@@ -74,7 +82,7 @@ websocket_handler::websocket_handler(const WebSocketServer* server)
 		}
 	}
 
-	_recv_thread = std::thread([this,r, initial_response = resp](){
+	m_recv_thread = std::thread([this,r, initial_response = resp](){
 		try {
 			::thalhammer::http::HandleWebSocketResponse resp = initial_response;
 			do {
@@ -87,8 +95,8 @@ websocket_handler::websocket_handler(const WebSocketServer* server)
 					case ::thalhammer::http::WebSocketMessage::BINARY:
 						mtype = MESSAGE_TYPE_BINARY; break;
 					case ::thalhammer::http::WebSocketMessage::CLOSE:
-						_server->close(_server);
-						_recv_shutdown = true;
+						m_server->close(m_server);
+						m_recv_shutdown = true;
 						break;
 					default:
 						break;
@@ -97,11 +105,12 @@ websocket_handler::websocket_handler(const WebSocketServer* server)
 					auto& content = msg.content();
 					this->send(mtype, (const uint8_t*)content.data(), content.size());
 				}
-			} while(!_recv_shutdown && _stream->Read(&resp));
+			} while(!m_recv_shutdown && m_stream->Read(&resp));
 		} catch(...) {
-			ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "Exception in read thread");
+			ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "exception in read thread");
 		}
 	});
+	return true;
 }
 
 websocket_handler::~websocket_handler()
@@ -120,9 +129,9 @@ void websocket_handler::on_message(int type, const uint8_t* buffer, size_t buffe
 	}
 	msg->set_content((const char*)buffer, buffer_size);
 
-	if(!_stream->Write(req))
+	if(!m_stream->Write(req))
 	{
-		ap_log_error(APLOG_MARK, APLOG_ERR, 0, _server->request(_server)->server, "Failed to send websocket message to backend");
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_server->request(m_server), "failed to send websocket message to backend");
 	}
 }
 
@@ -132,14 +141,14 @@ void websocket_handler::on_disconnect()
 	auto* msg = req.mutable_message();
 	msg->set_type(::thalhammer::http::WebSocketMessage::CLOSE);
 	msg->set_content("");
-	_stream->WriteLast(req, ::grpc::WriteOptions());
+	m_stream->WriteLast(req, ::grpc::WriteOptions());
 
-	_recv_shutdown = true;
-	::grpc::Status s = _stream->Finish();
+	m_recv_shutdown = true;
+	::grpc::Status s = m_stream->Finish();
 	if(!s.ok()) {
-		ap_log_error(APLOG_MARK, APLOG_ERR, 0, _server->request(_server)->server, "Failed to execute rpc: %s", s.error_message().c_str());
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, m_server->request(m_server), "failed to execute rpc: %s", s.error_message().c_str());
 	}
-	if(_recv_thread.joinable())
-		_recv_thread.join();
+	if(m_recv_thread.joinable())
+		m_recv_thread.join();
 }
 
