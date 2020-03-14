@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+
 typedef struct {
 	struct ConfigBool {
 		bool value;

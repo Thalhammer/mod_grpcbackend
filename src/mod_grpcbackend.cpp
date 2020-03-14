@@ -1,4 +1,5 @@
-#include "handler.h"
+#include "websocket_handler.h"
+#include "http_handler.h"
 #include "config.h"
 #include "http_config.h"
 #include "http_request.h"
@@ -20,10 +21,10 @@ static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD)
 static int is_websocket_upgrade(request_rec *r);
 
 static const command_rec grpcbackend_directives[] = {
-    AP_INIT_TAKE1("grpcEnabled", (cmd_func)grpcbackend_set_enabled, NULL, ACCESS_CONF, "Enabled or disable mod_grpcbackend"),
-    AP_INIT_TAKE1("grpcHost", (cmd_func)grpcbackend_set_host, NULL, ACCESS_CONF, "Set GRPC Service host (and port)"),
-    AP_INIT_TAKE1("grpcCallTimeout", (cmd_func)grpcbackend_set_calltimeout, NULL, ACCESS_CONF, "Set call timeout"),
-    AP_INIT_TAKE1("grpcConnectTimeout", (cmd_func)grpcbackend_set_connecttimeout, NULL, ACCESS_CONF, "Set connect timeout"),
+    AP_INIT_TAKE1("grpcEnabled", (cmd_func)grpcbackend_set_enabled, NULL, ACCESS_CONF | RSRC_CONF, "Enabled or disable mod_grpcbackend"),
+    AP_INIT_TAKE1("grpcHost", (cmd_func)grpcbackend_set_host, NULL, ACCESS_CONF | RSRC_CONF, "Set GRPC Service host (and port)"),
+    AP_INIT_TAKE1("grpcCallTimeout", (cmd_func)grpcbackend_set_calltimeout, NULL, ACCESS_CONF | RSRC_CONF, "Set call timeout"),
+    AP_INIT_TAKE1("grpcConnectTimeout", (cmd_func)grpcbackend_set_connecttimeout, NULL, ACCESS_CONF | RSRC_CONF, "Set connect timeout"),
     { NULL }
 };
 
@@ -166,7 +167,8 @@ static void* grpcbackend_create_dir_conf(apr_pool_t* pool, char* context)
     return config;
 }
 
-static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD) {
+static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD)
+{
     auto* base = static_cast<grpcbackend_config_t*>(BASE);
     auto* add = static_cast<grpcbackend_config_t*>(ADD);
     auto* conf = static_cast<grpcbackend_config_t*>(grpcbackend_create_dir_conf(pool, nullptr));

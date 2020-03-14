@@ -1,15 +1,15 @@
 APACHECTL=apachectl
-PROTOSRC = $(shell find . -name '*.proto' -not -path "./examples*")
+PROTOSRC = $(shell find ./src -name '*.proto')
 PROTOHEADERS = $(PROTOSRC:.proto=.grpc.pb.h) $(PROTOSRC:.proto=.pb.h)
 PROTOGEN = $(PROTOHEADERS:.h=.cc)
-SRC = $(shell find . -name '*.cpp' -not -path "./examples*") $(shell find . -name '*.c'  -not -path "./examples*") $(shell find . -name '*.cc'  -not -path "./examples*") $(PROTOSRC:.proto=.grpc.pb.cc) $(PROTOSRC:.proto=.pb.cc)
+SRC = $(shell find ./src -name '*.cpp') $(shell find ./src -name '*.c') $(shell find ./src -name '*.cc') $(PROTOSRC:.proto=.grpc.pb.cc) $(PROTOSRC:.proto=.pb.cc)
 EXCLUDE_SRC = 
 FSRC = $(filter-out $(EXCLUDE_SRC), $(SRC))
 OBJ = $(FSRC:=.o)
 
 DEP_DIR = .deps
 
-FLAGS = -fPIC -DPIC -Wall -Wno-unknown-pragmas -fstack-protector-strong -flto `pkg-config --cflags apr-1` -I`apxs -q INCLUDEDIR` -I ../apache-websocket/
+FLAGS = -fPIC -DPIC -Wall -Wno-unknown-pragmas -fstack-protector-strong -flto `pkg-config --cflags apr-1` -I`apxs -q INCLUDEDIR` -I.
 CXXFLAGS = -std=c++14
 CFLAGS = 
 LINKFLAGS = -lprotobuf -lgrpc++
@@ -21,7 +21,7 @@ ARCH := $(shell getconf LONG_BIT)
 DEBVERSION = $(shell git describe --tags --long | cut -d- -f1,2 | cut -c2-)
 DEBFOLDER = $(OUTNAME)_$(DEBVERSION)
 
-.PHONY: clean debug release test reload install start restart stop package
+.PHONY: clean debug release test reload install start restart stop run-apache package
 .PRECIOUS: $(PROTOGEN) $(PROTOHEADERS)
 
 release: FLAGS += -O2
