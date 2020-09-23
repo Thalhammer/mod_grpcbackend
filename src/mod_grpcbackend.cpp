@@ -57,7 +57,7 @@ static int grpcbackend_fixups(request_rec *r)
 {
     // We relly on mod_websocket.c to handle websocket connections for us if a ws uri is registered with a grpc backend
     auto* config = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
-    if (config->enabled && !strcmp(r->handler, "grpcbackend") && is_websocket_upgrade(r)) {
+    if (config->enabled && r->handler!=nullptr && !strcmp(r->handler, "grpcbackend") && is_websocket_upgrade(r)) {
         r->handler = apr_pstrdup(r->pool, "websocket-handler");
     }
     return DECLINED;
