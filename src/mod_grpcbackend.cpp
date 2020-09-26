@@ -6,18 +6,18 @@
 #include "ap_config.h"
 #include "mod_websocket_hook_export.h"
 
-static int grpcbackend_handler(request_rec *r);
-static int grpcbackend_fixups(request_rec *r);
-static int grpcbackend_ws_plugin_init(const char* name, WebSocketPlugin** pluginptr);
-static void grpcbackend_register_hooks(apr_pool_t *p);
-static const char* grpcbackend_set_enabled(cmd_parms* cmd, void* cfg, const char* arg);
-static const char* grpcbackend_set_host(cmd_parms* cmd, void* cfg, const char* arg);
-static const char* grpcbackend_set_calltimeout(cmd_parms* cmd, void* cfg, const char* arg);
-static const char* grpcbackend_set_connecttimeout(cmd_parms* cmd, void* cfg, const char* arg);
-static void* grpcbackend_create_dir_conf(apr_pool_t* pool, char* context);
-static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD);
+static int grpcbackend_handler(request_rec *r) noexcept;
+static int grpcbackend_fixups(request_rec *r) noexcept;
+static int grpcbackend_ws_plugin_init(const char* name, WebSocketPlugin** pluginptr) noexcept;
+static void grpcbackend_register_hooks(apr_pool_t *p) noexcept;
+static const char* grpcbackend_set_enabled(cmd_parms* cmd, void* cfg, const char* arg) noexcept;
+static const char* grpcbackend_set_host(cmd_parms* cmd, void* cfg, const char* arg) noexcept;
+static const char* grpcbackend_set_calltimeout(cmd_parms* cmd, void* cfg, const char* arg) noexcept;
+static const char* grpcbackend_set_connecttimeout(cmd_parms* cmd, void* cfg, const char* arg) noexcept;
+static void* grpcbackend_create_dir_conf(apr_pool_t* pool, char* context) noexcept;
+static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD) noexcept;
 
-static int is_websocket_upgrade(request_rec *r);
+static int is_websocket_upgrade(request_rec *r) noexcept;
 
 static const command_rec grpcbackend_directives[] = {
     AP_INIT_TAKE1("grpcEnabled", (cmd_func)grpcbackend_set_enabled, NULL, ACCESS_CONF | RSRC_CONF, "Enabled or disable mod_grpcbackend"),
@@ -40,7 +40,7 @@ extern "C" {
     };
 }
 
-static int grpcbackend_handler(request_rec *r)
+static int grpcbackend_handler(request_rec *r) noexcept
 {
     if(strcmp(r->handler, "grpcbackend")) {
         return DECLINED;
@@ -53,7 +53,7 @@ static int grpcbackend_handler(request_rec *r)
     return handler->handle_request();
 }
 
-static int grpcbackend_fixups(request_rec *r)
+static int grpcbackend_fixups(request_rec *r) noexcept
 {
     // We relly on mod_websocket.c to handle websocket connections for us if a ws uri is registered with a grpc backend
     auto* config = static_cast<grpcbackend_config_t*>(ap_get_module_config(r->per_dir_config, &grpcbackend_module));
@@ -63,14 +63,14 @@ static int grpcbackend_fixups(request_rec *r)
     return DECLINED;
 }
 
-static size_t grpcbackend_ws_onmessage(void *plugin_private, const WebSocketServer *server, const int type, unsigned char *buffer, const size_t buffer_size)
+static size_t grpcbackend_ws_onmessage(void *plugin_private, const WebSocketServer *server, const int type, unsigned char *buffer, const size_t buffer_size) noexcept
 {
     auto* handler = reinterpret_cast<websocket_handler*>(plugin_private);
     handler->on_message(type, buffer, buffer_size);
     return 0;
 }
 
-static void* grpcbackend_ws_onconnect(const WebSocketServer *server)
+static void* grpcbackend_ws_onconnect(const WebSocketServer *server) noexcept
 {
     auto* r = server->request(server);
     
@@ -84,7 +84,7 @@ static void* grpcbackend_ws_onconnect(const WebSocketServer *server)
     }
 }
 
-static void grpcbackend_ws_ondisconnect(void *plugin_private, const WebSocketServer *server)
+static void grpcbackend_ws_ondisconnect(void *plugin_private, const WebSocketServer *server) noexcept
 {
     auto* handler = reinterpret_cast<websocket_handler*>(plugin_private);
     handler->on_disconnect();
@@ -99,7 +99,7 @@ static WebSocketPlugin grpcbackend_ws_plugin = {
     grpcbackend_ws_ondisconnect /* disconnect */
 };
 
-static int grpcbackend_ws_plugin_init(const char* name, WebSocketPlugin** pluginptr)
+static int grpcbackend_ws_plugin_init(const char* name, WebSocketPlugin** pluginptr) noexcept
 {
     if(!strcmp(name, "grpcbackend")) {
         *pluginptr = &grpcbackend_ws_plugin;
@@ -108,14 +108,14 @@ static int grpcbackend_ws_plugin_init(const char* name, WebSocketPlugin** plugin
     return DECLINED;
 }
 
-static void grpcbackend_register_hooks(apr_pool_t *p)
+static void grpcbackend_register_hooks(apr_pool_t *p) noexcept
 {
     ap_hook_fixups(grpcbackend_fixups, NULL, NULL, APR_HOOK_LAST);
     ap_hook_handler(grpcbackend_handler, NULL, NULL, APR_HOOK_MIDDLE);
     AP_OPTIONAL_HOOK(websocket_plugin_init, grpcbackend_ws_plugin_init, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
-static const char* grpcbackend_set_enabled(cmd_parms* cmd, void* cfg, const char* arg)
+static const char* grpcbackend_set_enabled(cmd_parms* cmd, void* cfg, const char* arg) noexcept
 {
     auto* config = static_cast<grpcbackend_config_t*>(cfg);
     if(config) {
@@ -124,7 +124,7 @@ static const char* grpcbackend_set_enabled(cmd_parms* cmd, void* cfg, const char
     return nullptr;
 }
 
-static const char* grpcbackend_set_host(cmd_parms* cmd, void* cfg, const char* arg)
+static const char* grpcbackend_set_host(cmd_parms* cmd, void* cfg, const char* arg) noexcept
 {
     auto* config = static_cast<grpcbackend_config_t*>(cfg);
     if(config) {
@@ -133,7 +133,7 @@ static const char* grpcbackend_set_host(cmd_parms* cmd, void* cfg, const char* a
     return nullptr;
 }
 
-static const char* grpcbackend_set_calltimeout(cmd_parms* cmd, void* cfg, const char* arg)
+static const char* grpcbackend_set_calltimeout(cmd_parms* cmd, void* cfg, const char* arg) noexcept
 {
     auto* config = static_cast<grpcbackend_config_t*>(cfg);
     if(config) {
@@ -144,7 +144,7 @@ static const char* grpcbackend_set_calltimeout(cmd_parms* cmd, void* cfg, const 
     return nullptr;
 }
 
-static const char* grpcbackend_set_connecttimeout(cmd_parms* cmd, void* cfg, const char* arg)
+static const char* grpcbackend_set_connecttimeout(cmd_parms* cmd, void* cfg, const char* arg) noexcept
 {
     auto* config = static_cast<grpcbackend_config_t*>(cfg);
     if(config) {
@@ -155,7 +155,7 @@ static const char* grpcbackend_set_connecttimeout(cmd_parms* cmd, void* cfg, con
     return nullptr;
 }
 
-static void* grpcbackend_create_dir_conf(apr_pool_t* pool, char* context)
+static void* grpcbackend_create_dir_conf(apr_pool_t* pool, char* context) noexcept
 {
     auto* config = static_cast<grpcbackend_config_t*>(apr_pcalloc(pool, sizeof(grpcbackend_config_t)));
 
@@ -169,7 +169,7 @@ static void* grpcbackend_create_dir_conf(apr_pool_t* pool, char* context)
     return config;
 }
 
-static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD)
+static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD) noexcept
 {
     auto* base = static_cast<grpcbackend_config_t*>(BASE);
     auto* add = static_cast<grpcbackend_config_t*>(ADD);
@@ -186,7 +186,7 @@ static void* grpcbackend_merge_dir_conf(apr_pool_t* pool, void* BASE, void* ADD)
 }
 
 // Check if this connection is a ws connection
-static int is_websocket_upgrade(request_rec *r)
+static int is_websocket_upgrade(request_rec *r) noexcept
 {
     const char *upgrade = apr_table_get(r->headers_in, "Upgrade");
     const char *connection = apr_table_get(r->headers_in, "Connection");

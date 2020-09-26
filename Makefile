@@ -12,7 +12,7 @@ DEP_DIR = .deps
 FLAGS = -fPIC -DPIC -Wall -Wno-unknown-pragmas -fstack-protector-strong -flto `pkg-config --cflags apr-1` -I`apxs -q INCLUDEDIR` -I.
 CXXFLAGS = -std=c++14
 CFLAGS = 
-LINKFLAGS = -lprotobuf -lgrpc++
+LINKFLAGS = -lprotobuf -lgrpc++ -Wl,--version-script=mod_grpcbackend.version
 
 OUTNAME = libapache2-mod-grpcbackend
 OUTFILE = mod_grpcbackend.so

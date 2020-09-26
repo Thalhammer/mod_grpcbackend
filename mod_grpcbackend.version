@@ -1,0 +1,4 @@
+mod_grpcbackend_1 {
+  global: grpcbackend_module;
+  local: *;
+};

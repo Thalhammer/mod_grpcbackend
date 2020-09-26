@@ -4,10 +4,9 @@
 #include <map> 
 
 struct request_rec;
-namespace grpc_impl {
+namespace grpc {
     class Channel;
 }
-namespace grpc { typedef ::grpc_impl::Channel Channel;}
 
 class grpc_connection_provider {
 	struct con_entry;
